@@ -3,7 +3,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import google.generativeai as genai
 import os
-
+import PyPDF2
+from pathlib import Path
+import chromadb
+from chromadb.config import Settings
+import hashlib
 import asyncio
 from typing import List, Optional
 import asyncpg
@@ -40,6 +44,7 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 NEON_DATABASE_URL = os.getenv("NEON_DATABASE_URL")
+PDF_FOLDER = "pdfs"
 
 # LLM Provider Classes
 class GeminiLLM:
@@ -204,32 +209,185 @@ def initialize_llm_providers():
 # Initialize all providers
 llm_providers = initialize_llm_providers()
 
+# Initialize ChromaDB
+try:
+    client = chromadb.PersistentClient(path="./chroma_db")
+    collection = client.get_or_create_collection(
+        name="pdf_documents",
+        metadata={"hnsw:space": "cosine"}
+    )
+    print("ChromaDB initialized successfully!")
+except Exception as e:
+    print(f"ChromaDB initialization error: {e}")
+    client = chromadb.Client()
+    collection = client.get_or_create_collection(name="pdf_documents")
+
 class PDFChatBot:
     def __init__(self):
+        self.pdf_folder = Path(PDF_FOLDER)
+        self.pdf_folder.mkdir(exist_ok=True)
         self.conn = None
         
     async def setup_database(self):
-        """Setup Neon database connection"""
+        """Setup Neon database connection and tables"""
         try:
             if NEON_DATABASE_URL:
                 self.conn = await asyncpg.connect(NEON_DATABASE_URL)
-                print("Database connection established!")
+                
+                await self.conn.execute('''
+                    CREATE TABLE IF NOT EXISTS chat_history (
+                        id SERIAL PRIMARY KEY,
+                        user_message TEXT NOT NULL,
+                        bot_response TEXT NOT NULL,
+                        language VARCHAR(10) DEFAULT 'auto',
+                        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        sources TEXT[]
+                    );
+                ''')
+                
+                await self.conn.execute('''
+                    CREATE TABLE IF NOT EXISTS pdf_documents (
+                        id SERIAL PRIMARY KEY,
+                        filename VARCHAR(255) NOT NULL,
+                        file_hash VARCHAR(64) UNIQUE NOT NULL,
+                        content_preview TEXT,
+                        page_count INTEGER,
+                        processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    );
+                ''')
+                print("Database setup completed!")
             else:
-                print("No database URL provided, skipping database connection")
+                print("No database URL provided, skipping database setup")
                 
         except Exception as e:
             print(f"Database setup error: {e}")
             self.conn = None
     
-    def search_relevant_content(self, query: str, n_results: int = 5) -> dict:
-        """Search for relevant content in Neon database"""
+    def extract_text_from_pdf(self, pdf_path: Path) -> dict:
+        """Extract text from PDF file"""
         try:
-            if not self.conn:
-                return {"documents": [], "metadatas": [], "distances": []}
+            text_content = ""
+            with open(pdf_path, 'rb') as file:
+                pdf_reader = PyPDF2.PdfReader(file)
+                page_count = len(pdf_reader.pages)
+                
+                for page_num, page in enumerate(pdf_reader.pages):
+                    page_text = page.extract_text()
+                    if page_text.strip():
+                        text_content += f"\n[Page {page_num + 1}]\n{page_text}\n"
             
-            # Simple text search in Neon database - you can enhance this with vector search later
-            # For now, return empty results to avoid ChromaDB dependency
-            print(f"Search query: {query}")
+            return {
+                "content": text_content,
+                "page_count": page_count,
+                "filename": pdf_path.name
+            }
+        except Exception as e:
+            print(f"Error extracting text from {pdf_path}: {e}")
+            return None
+    
+    def chunk_text(self, text: str, chunk_size: int = 1000, overlap: int = 200) -> List[str]:
+        """Split text into overlapping chunks"""
+        words = text.split()
+        chunks = []
+        
+        for i in range(0, len(words), chunk_size - overlap):
+            chunk = ' '.join(words[i:i + chunk_size])
+            if chunk.strip():
+                chunks.append(chunk)
+        
+        return chunks
+    
+    async def process_pdfs(self):
+        """Process all PDFs in the folder and store in vector database"""
+        pdf_files = list(self.pdf_folder.glob("*.pdf"))
+        
+        if not pdf_files:
+            print("No PDF files found in the pdfs folder")
+            return
+            
+        for pdf_path in pdf_files:
+            try:
+                with open(pdf_path, 'rb') as f:
+                    file_hash = hashlib.sha256(f.read()).hexdigest()
+                
+                try:
+                    existing_docs = collection.get(where={"filename": pdf_path.name})
+                    if existing_docs and len(existing_docs.get('ids', [])) > 0:
+                        print(f"PDF {pdf_path.name} already processed, skipping...")
+                        continue
+                except Exception as check_error:
+                    print(f"Error checking existing docs for {pdf_path.name}: {check_error}")
+                
+                print(f"Processing {pdf_path.name}...")
+                
+                pdf_data = self.extract_text_from_pdf(pdf_path)
+                if not pdf_data or not pdf_data["content"].strip():
+                    print(f"No text content found in {pdf_path.name}")
+                    continue
+                
+                chunks = self.chunk_text(pdf_data["content"])
+                
+                if not chunks:
+                    print(f"No chunks generated for {pdf_path.name}")
+                    continue
+                
+                ids = []
+                metadatas = []
+                documents = []
+                
+                for i, chunk in enumerate(chunks):
+                    chunk_id = f"{pdf_path.stem}_{i}"
+                    ids.append(chunk_id)
+                    documents.append(chunk)
+                    metadatas.append({
+                        "filename": pdf_path.name,
+                        "chunk_index": i,
+                        "file_hash": file_hash
+                    })
+                
+                try:
+                    collection.add(
+                        documents=documents,
+                        metadatas=metadatas,
+                        ids=ids
+                    )
+                    print(f"Added {len(chunks)} chunks to ChromaDB for {pdf_path.name}")
+                except Exception as add_error:
+                    print(f"Error adding to ChromaDB: {add_error}")
+                    continue
+                
+                if self.conn:
+                    try:
+                        await self.conn.execute('''
+                            INSERT INTO pdf_documents (filename, file_hash, content_preview, page_count)
+                            VALUES ($1, $2, $3, $4)
+                            ON CONFLICT (file_hash) DO NOTHING
+                        ''', pdf_path.name, file_hash, pdf_data["content"][:500], pdf_data["page_count"])
+                    except Exception as db_error:
+                        print(f"Error storing in database: {db_error}")
+                
+                print(f"Successfully processed {pdf_path.name}")
+                
+            except Exception as e:
+                print(f"Error processing {pdf_path.name}: {e}")
+    
+    def search_relevant_content(self, query: str, n_results: int = 5) -> dict:
+        """Search for relevant content in the vector database"""
+        try:
+            results = collection.query(
+                query_texts=[query],
+                n_results=n_results
+            )
+            
+            print(f"Search results found: {len(results.get('documents', [[]])[0])} documents")
+            
+            if results.get('documents') and len(results['documents'][0]) > 0:
+                return {
+                    "documents": results['documents'][0],
+                    "metadatas": results['metadatas'][0],
+                    "distances": results.get('distances', [[]])[0]
+                }
+            
             return {"documents": [], "metadatas": [], "distances": []}
             
         except Exception as e:
@@ -380,6 +538,7 @@ async def startup_event():
     """Initialize the application"""
     try:
         await chatbot.setup_database()
+        await chatbot.process_pdfs()
         print("Application initialized successfully!")
     except Exception as e:
         print(f"Startup error: {e}")
