@@ -162,13 +162,13 @@ class FallbackLLM:
         
         # Simple template-based responses
         if any(word in prompt_lower for word in ["hello", "hi", "namaste", "नमस्ते"]):
-            return "नमस्ते! मैं NavyaKosh चैटबॉट हूं। मैं आपकी PDF से संबंधित प्रश्नों में सहायता कर सकता हूं।\n\nHello! I'm NavyaKosh ChatBot. I can help you with questions related to your PDFs."
+            return "नमस्ते! मैं LCB चैटबॉट हूं। मैं आपकी LCBFFertilizers से संबंधित प्रश्नों में सहायता कर सकता हूं।\n\nHello! I'm NavyaKosh ChatBot. I can help you with questions related to your LCB Fertilizers."
         
         elif any(word in prompt_lower for word in ["thank", "thanks", "धन्यवाद"]):
             return "आपका स्वागत है! कोई और प्रश्न है तो बेझिझक पूछें।\n\nYou're welcome! Feel free to ask if you have any other questions."
         
         else:
-            return "मुझे खुशी होगी आपकी सहायता करने में। कृपया अपना प्रश्न PDF की जानकारी के संदर्भ में पूछें।\n\nI'd be happy to help you. Please ask your question related to the PDF information."
+            return "मुझे खुशी होगी आपकी सहायता करने में। कृपया अपना प्रश्न PDF की जानकारी के संदर्भ में पूछें।\n\nI'd be happy to help you. Please ask your question related to the LCB Fertilizers Products and information."
 
 # Initialize LLM providers
 def initialize_llm_providers():
@@ -444,13 +444,13 @@ class PDFChatBot:
             # Prepare language-specific instructions
             if language == "hindi":
                 language_instruction = "कृपया अपना पूरा उत्तर हिंदी में विनम्रता और सम्मान के साथ दें।"
-                greeting_response = "नमस्ते! मैं NavyaKosh हूं, आपका PDF सहायक। मैं आपकी सेवा में हूं।"
+                greeting_response = "नमस्ते! मैं NavyaKosh हूं, आपका LCB Queries सहायक। मैं आपकी सेवा में हूं।"
             elif language == "english":
                 language_instruction = "Please provide your complete answer in English with politeness and respect."
-                greeting_response = "Hello! I'm NavyaKosh, your PDF assistant. I'm here to help you."
+                greeting_response = "Hello! I'm NavyaKosh, your LCB windows Query assistant. I'm here to help you."
             else:
                 language_instruction = "Please respond in the same language as the user's question with politeness and respect. If unclear, respond in both Hindi and English."
-                greeting_response = "नमस्ते! Hello! I'm NavyaKosh, your PDF assistant. मैं आपका PDF सहायक हूं।"
+                greeting_response = "नमस्ते! Hello! I'm NavyaKosh, your LCB Query assistant. मैं आपका LCB Queries सहायक हूं।"
             
             # Handle greetings
             if is_general:
@@ -463,7 +463,7 @@ Instructions:
 - {language_instruction}
 - Be very polite, respectful, and humble
 - Introduce yourself as NavyaKosh if asked
-- Show that you're here to help with PDF-related questions
+- Show that you're here to help with LCB Fetilizers(Navyakosh)-related questions
 
 Respond warmly and respectfully:
 """
@@ -472,7 +472,7 @@ Respond warmly and respectfully:
                 # Handle PDF-related queries
                 if context:
                     prompt = f"""
-You are NavyaKosh, a respectful PDF chatbot assistant.
+You are NavyaKosh, a respectful LCB Fertilizers chatbot assistant.
 
 Relevant PDF information:
 {context}
@@ -490,7 +490,7 @@ Provide a detailed, respectful response:
 """
                 else:
                     prompt = f"""
-You are NavyaKosh, a respectful PDF chatbot assistant.
+You are LCB Fertilizer's (NavyaKosh), a respectful chatbot assistant.
 
 User Question: {query}
 
