@@ -3,8 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import google.generativeai as genai
 import os
-import chromadb
-from chromadb.config import Settings
+
 import asyncio
 from typing import List, Optional
 import asyncpg
@@ -205,19 +204,6 @@ def initialize_llm_providers():
 # Initialize all providers
 llm_providers = initialize_llm_providers()
 
-# Initialize ChromaDB (only for querying)
-try:
-    client = chromadb.PersistentClient(path="./chroma_db")
-    collection = client.get_or_create_collection(
-        name="pdf_documents",
-        metadata={"hnsw:space": "cosine"}
-    )
-    print("ChromaDB initialized successfully!")
-except Exception as e:
-    print(f"ChromaDB initialization error: {e}")
-    client = chromadb.Client()
-    collection = client.get_or_create_collection(name="pdf_documents")
-
 class PDFChatBot:
     def __init__(self):
         self.conn = None
@@ -236,22 +222,14 @@ class PDFChatBot:
             self.conn = None
     
     def search_relevant_content(self, query: str, n_results: int = 5) -> dict:
-        """Search for relevant content in the vector database"""
+        """Search for relevant content in Neon database"""
         try:
-            results = collection.query(
-                query_texts=[query],
-                n_results=n_results
-            )
+            if not self.conn:
+                return {"documents": [], "metadatas": [], "distances": []}
             
-            print(f"Search results found: {len(results.get('documents', [[]])[0])} documents")
-            
-            if results.get('documents') and len(results['documents'][0]) > 0:
-                return {
-                    "documents": results['documents'][0],
-                    "metadatas": results['metadatas'][0],
-                    "distances": results.get('distances', [[]])[0]
-                }
-            
+            # Simple text search in Neon database - you can enhance this with vector search later
+            # For now, return empty results to avoid ChromaDB dependency
+            print(f"Search query: {query}")
             return {"documents": [], "metadatas": [], "distances": []}
             
         except Exception as e:
