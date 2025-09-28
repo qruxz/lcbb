@@ -8,7 +8,7 @@ from pathlib import Path
 import chromadb
 from chromadb.config import Settings
 import hashlib
-import asyncio
+
 from typing import List, Optional
 import asyncpg
 import json
