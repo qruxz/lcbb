@@ -1,10 +1,11 @@
+pip>=24.3
 setuptools>=68.0
 wheel
 fastapi==0.104.1
 uvicorn==0.24.0
 google-generativeai==0.3.2
 PyPDF2==3.0.1
-
+chromadb==0.4.15
 python-multipart==0.0.6
 pydantic==2.8.2
 pydantic-core==2.20.1
