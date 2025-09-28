@@ -10,7 +10,6 @@ from chromadb.config import Settings
 import hashlib
 import asyncio
 from typing import List, Optional
-import asyncpg
 import json
 from datetime import datetime
 from dotenv import load_dotenv
